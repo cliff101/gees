@@ -71,8 +71,8 @@ namespace GeesWPF
         int bounces = 0;
         int myDefineId;
 
-        const int SAMPLE_RATE = 20; //ms
-        const int BUFFER_SIZE = 2;
+        const int SAMPLE_RATE = 1000/60; //ms
+        const int BUFFER_SIZE = 100;
 
         DispatcherTimer timerRead = new DispatcherTimer();
         DispatcherTimer timerBounce = new DispatcherTimer();
