@@ -59,9 +59,9 @@ namespace GeesWPF
 
         #region Publics and statics
         static bool ShowLanding = false;
+        static bool LandingComplete = false;
         static bool SafeToRead = true;
-        static List<PlaneInfoResponse> Inair = new List<PlaneInfoResponse>();
-        static List<PlaneInfoResponse> Onground = new List<PlaneInfoResponse>();
+        static List<PlaneInfoResponse> Landingdata = new List<PlaneInfoResponse>();
         static FsConnect fsConnect = new FsConnect();
         static List<SimVar> definition = new List<SimVar>();
         static string updateUri;
@@ -72,7 +72,8 @@ namespace GeesWPF
         int myDefineId;
 
         const int SAMPLE_RATE = 1000/60; //ms
-        const int BUFFER_SIZE = 100;
+        static int BUFFER_SIZE = 200;
+        static int BUFFER_SIZE_SHOW = 10;
 
         DispatcherTimer timerRead = new DispatcherTimer();
         DispatcherTimer timerBounce = new DispatcherTimer();
@@ -85,13 +86,12 @@ namespace GeesWPF
 
         public ViewModel viewModel = new ViewModel();
         LRMDisplay winLRM;
-        static Mutex mutex;
+        static object lockResource = new object();
 
 
         public MainWindow()
         {
             bool createdNew = true;
-            mutex = new Mutex(true, "Gees", out createdNew);
             if (!createdNew)
             {
                 System.Windows.MessageBox.Show("App is already running.\nCheck your system tray.", "Gees", MessageBoxButton.OK, MessageBoxImage.Information);
@@ -134,29 +134,31 @@ namespace GeesWPF
             //SHOW LRM
             winLRM = new LRMDisplay(viewModel);
             winLRM.Show();
-
-            
         }
 
         #region Reading and processing simconnect data
         private void timerRead_Tick(object sender, EventArgs e)
         {
-            if (!ShowLanding)
+            lock (lockResource)
             {
-                try
+                if (!ShowLanding)
                 {
-                    fsConnect.RequestData(Requests.PlaneInfo, Requests.PlaneInfo);
+                    try
+                    {
+                        fsConnect.RequestData(Requests.PlaneInfo, Requests.PlaneInfo);
+                    }
+                    catch
+                    {
+                    }
                 }
-                catch
+                else
                 {
+                    calculateLanding(LandingComplete);
+                    //int BOUNCE_TIMER = Properties.Settings.Default.CloseAfterLanding * 1000;
+                    //timerBounce.Interval = new TimeSpan(0, 0, 0, 0, BOUNCE_TIMER);
+                    //timerBounce.Start();
+                    viewModel.LogParams();
                 }
-            }
-            else
-            {
-                calculateLanding();
-                int BOUNCE_TIMER = Properties.Settings.Default.CloseAfterLanding * 1000;
-                timerBounce.Interval = new TimeSpan(0, 0, 0, 0, BOUNCE_TIMER);
-                timerBounce.Start();
             }
         }
 
@@ -165,6 +167,10 @@ namespace GeesWPF
             if (!SafeToRead)
             {
                 Console.WriteLine("lost one");
+                Landingdata.Clear();
+                ShowLanding = false;
+                LandingComplete = false;
+                SafeToRead = true;
                 return;
             }
             SafeToRead = false;
@@ -172,7 +178,7 @@ namespace GeesWPF
             {
                 if (e.RequestId == (uint)Requests.PlaneInfo)
                 {
-                    if (!ShowLanding)
+                    if (!ShowLanding || !LandingComplete)
                     {
                         PlaneInfoResponse r = (PlaneInfoResponse)e.Data.FirstOrDefault();
                         //ignore when noone is flying
@@ -181,32 +187,23 @@ namespace GeesWPF
                             SafeToRead = true;
                             return;
                         }
-                        if (r.OnGround)
+                        lock (lockResource)
                         {
-                            Onground.Add(r);
-                            if (Onground.Count > BUFFER_SIZE)
+                            Landingdata.Add(r);
+                            if (Landingdata.Count > BUFFER_SIZE && !Landingdata.ElementAt(1).OnGround || Landingdata.ElementAt(0).OnGround)
                             {
-                                Onground.RemoveAt(0);
-                                if (Inair.Count == BUFFER_SIZE)
-                                {
-                                    ShowLanding = true;
-                                }
+                                Landingdata.RemoveAt(0);
                             }
-                        }
-                        else
-                        {
-                            Inair.Add(r);
-                            if (Inair.Count > BUFFER_SIZE)
+                            if (Landingdata.Count > BUFFER_SIZE && Landingdata.ElementAt(1).OnGround && !Landingdata.ElementAt(0).OnGround && (Landingdata.Last().OnGround || Landingdata.Count > BUFFER_SIZE * 2)) //if last not onground, extend the buffer
                             {
-                                Inair.RemoveAt(0);
+                                LandingComplete = true;
+                                ShowLanding = true;
                             }
-                            Onground.Clear();
-                        }
-                        if (Inair.Count > BUFFER_SIZE || Onground.Count > BUFFER_SIZE) //maximum 1 for race condition
-                        {
-                            Inair.Clear();
-                            Onground.Clear();
-                            throw new Exception("this baaad");
+                            else if (Landingdata.Count > BUFFER_SIZE_SHOW && Landingdata.ElementAt(Landingdata.Count - 1 - BUFFER_SIZE_SHOW).OnGround && !Landingdata.ElementAt(0).OnGround) //if last not onground, extend the buffer
+                            {
+                                LandingComplete = false;
+                                ShowLanding = true;
+                            }
                         }
                         // POnGround = r.OnGround;
                     }
@@ -219,21 +216,23 @@ namespace GeesWPF
             SafeToRead = true;
         }
 
-        private void calculateLanding()
+        private void calculateLanding(bool landingcomplete)
         {
             //impact calculation
             try
             {
-                double fpm = 60 * Onground.ElementAt(0).LandingRate;
+                int landingindex = 0;
+                for (; landingindex < Landingdata.Count && !Landingdata.ElementAt(landingindex).OnGround; landingindex++);
+                   double fpm = 60 * Landingdata.ElementAt(landingindex).LandingRate;
                 Int32 FPM = Convert.ToInt32(-fpm);
 
                 double gees = 0;
                 //int Gforcemeterlen = 100 / SAMPLE_RATE; // take 100ms average for G force
-                for (int i = 0; i < BUFFER_SIZE; i++)
+                for (int i = 1; i < Landingdata.Count; i++)
                 {
-                    if (Onground.ElementAt(i).Gforce > gees)
+                    if (Landingdata.ElementAt(i).OnGround && Landingdata.ElementAt(i).Gforce > gees)
                     {
-                        gees = Onground.ElementAt(i).Gforce;
+                        gees = Landingdata.ElementAt(i).Gforce;
                     }
                     /*gees += Onground.ElementAt(i).Gforce;
                     Console.WriteLine(Onground.ElementAt(i).Gforce);*/
@@ -242,41 +241,50 @@ namespace GeesWPF
               //  gees += Onground.ElementAt(0).Gforce;
 
 
-                double incAngle = Math.Atan(Inair.Last().LateralSpeed / Inair.Last().ForwardSpeed) * 180 / Math.PI;
+                double incAngle = Math.Atan(Landingdata.ElementAt(landingindex - 1).LateralSpeed / Landingdata.ElementAt(landingindex - 1).ForwardSpeed) * 180 / Math.PI;
 
-                if (bounces == 0)
+                bounces = 0;
+                bool currentonground = false;
+                for (int i = 0; i < Landingdata.Count; i++)
                 {
-                    // EnterLog(Inair.First().Type, FPM, gees, Inair.Last().AirspeedInd, Inair.Last().GroundSpeed, Inair.Last().WindHead, Inair.Last().WindLat, incAngle);
-                    viewModel.SetParams(new ViewModel.Parameters
+                    if (!currentonground && Landingdata.ElementAt(i).OnGround)
                     {
-                        Name = Inair.First().Type,
-                        FPM = FPM,
-                        Gees = Math.Round(gees, 2),
-                        Airspeed = Math.Round(Inair.Last().AirspeedInd, 2),
-                        Groundspeed = Math.Round(Inair.Last().GroundSpeed, 2),
-                        Crosswind = Math.Round(Inair.Last().WindLat, 2),
-                        Headwind = Math.Round(Inair.Last().WindHead, 2),
-                        Slip = Math.Round(incAngle, 2),
-                        Bounces = 0
-                    });
-                    winLRM.SlideLeft();
-                    bounces++;
+                        currentonground = true;
+                    }
+                    else if (currentonground && !Landingdata.ElementAt(i).OnGround)
+                    {
+                        bounces++;
+                        currentonground = false;
+                    }
                 }
-                else
+                // EnterLog(Inair.First().Type, FPM, gees, Inair.Last().AirspeedInd, Inair.Last().GroundSpeed, Inair.Last().WindHead, Inair.Last().WindLat, incAngle);
+                viewModel.SetParams(new ViewModel.Parameters
                 {
-                    viewModel.BounceParams();
-                }
+                    Name = Landingdata.ElementAt(landingindex - 1).Type,
+                    FPM = FPM,
+                    Gees = Math.Round(gees, 2),
+                    Airspeed = Math.Round(Landingdata.ElementAt(landingindex-1).AirspeedInd, 2),
+                    Groundspeed = Math.Round(Landingdata.ElementAt(landingindex - 1).GroundSpeed, 2),
+                    Crosswind = Math.Round(Landingdata.ElementAt(landingindex - 1).WindLat, 2),
+                    Headwind = Math.Round(Landingdata.ElementAt(landingindex - 1).WindHead, 2),
+                    Slip = Math.Round(incAngle, 2),
+                    Bounces = bounces
+                });
+                winLRM.SlideLeft();
                 // viewModel.UpdateTable();
                 //LRMDisplay form = new LRMDisplay(FPM, gees, Inair.Last().AirspeedInd, Inair.Last().GroundSpeed, Inair.Last().WindHead, Inair.Last().WindLat, incAngle);
                 //form.Show();
-                Inair.Clear();
-                Onground.Clear();
                 ShowLanding = false;
+                if (landingcomplete)
+                {
+                    Landingdata.Clear();
+                    LandingComplete = false;
+                }
             }
             catch (Exception ex)
             {
                 Console.WriteLine(ex.Message);
-                //some params are missing. likely the user is in the main menu. ignore
+                //some params9 are missing. likely the user is in the main menu. ignore
             }
         }
         private void timerBounce_Tick(object sender, EventArgs e)

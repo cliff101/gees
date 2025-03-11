@@ -66,7 +66,10 @@ namespace GeesWPF
             {
                 timerClose.Start();
             }
-            this.BeginStoryboard(FindResource("show") as Storyboard);
+            if (Width < 350)
+            {
+                this.BeginStoryboard(FindResource("show") as Storyboard);
+            }
         }
         private void image1_MouseDown(object sender, MouseButtonEventArgs e)
         {
