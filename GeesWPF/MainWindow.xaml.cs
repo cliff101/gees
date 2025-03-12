@@ -194,12 +194,12 @@ namespace GeesWPF
                             {
                                 Landingdata.RemoveAt(0);
                             }
-                            if (Landingdata.Count > BUFFER_SIZE && Landingdata.ElementAt(1).OnGround && !Landingdata.ElementAt(0).OnGround && (Landingdata.Last().OnGround || Landingdata.Count > BUFFER_SIZE * 2)) //if last not onground, extend the buffer
+                            if (Landingdata.Count > BUFFER_SIZE && Landingdata.ElementAt(1).OnGround && !Landingdata.ElementAt(0).OnGround && (Landingdata.Last().OnGround || Landingdata.Count > BUFFER_SIZE * 1.25)) //if last not onground, extend the buffer
                             {
                                 LandingComplete = true;
                                 ShowLanding = true;
                             }
-                            else if (Landingdata.Count > BUFFER_SIZE_SHOW && Landingdata.ElementAt(Landingdata.Count - 1 - BUFFER_SIZE_SHOW).OnGround && !Landingdata.ElementAt(0).OnGround) //if last not onground, extend the buffer
+                            else if (Landingdata.Count > BUFFER_SIZE_SHOW && Landingdata.ElementAt(Landingdata.Count - 1 - BUFFER_SIZE_SHOW).OnGround && !Landingdata.ElementAt(0).OnGround)
                             {
                                 LandingComplete = false;
                                 ShowLanding = true;

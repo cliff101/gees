@@ -24,6 +24,7 @@ namespace GeesWPF
     /// </summary>
     public partial class LRMDisplay : Window
     {
+        static bool showing = false;
         #region Don't ever take focus
         protected override void OnSourceInitialized(EventArgs e)
         {
@@ -55,8 +56,12 @@ namespace GeesWPF
 
         public void AutoHide(object sender, EventArgs e)
         {
-            this.BeginStoryboard(FindResource("hide") as Storyboard);
-            timerClose.Stop();
+            if (showing)
+            {
+                showing = false;
+                this.BeginStoryboard(FindResource("hide") as Storyboard);
+                timerClose.Stop();
+            }
         }
 
         public void SlideLeft()
@@ -66,8 +71,9 @@ namespace GeesWPF
             {
                 timerClose.Start();
             }
-            if (Width < 350)
+            if (!showing)
             {
+                showing = true;
                 this.BeginStoryboard(FindResource("show") as Storyboard);
             }
         }

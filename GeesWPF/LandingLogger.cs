@@ -4,6 +4,7 @@ using System.Data;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Windows;
 using System.Text;
 using System.Threading.Tasks;
 using CsvHelper;
@@ -59,15 +60,23 @@ namespace GeesWPF
         {
             string path = MakeLogIfEmpty();
             // Append to the file.
-            using (var stream = File.Open(path, FileMode.Append))
-            using (var writer = new StreamWriter(stream))
-            using (var csv = new CsvWriter(writer, CultureInfo.InvariantCulture))
+            try
             {
-                List<LogEntry> newRecord = new List<LogEntry>();
-                newRecord.Add(newLine);
-                // Don't write the header again.
-                csv.Configuration.HasHeaderRecord = false;
-                csv.WriteRecords(newRecord);
+                using (var stream = File.Open(path, FileMode.Append))
+                using (var writer = new StreamWriter(stream))
+                using (var csv = new CsvWriter(writer, CultureInfo.InvariantCulture))
+                {
+                    List<LogEntry> newRecord = new List<LogEntry>();
+                    newRecord.Add(newLine);
+                    // Don't write the header again.
+                    csv.Configuration.HasHeaderRecord = false;
+                    csv.WriteRecords(newRecord);
+                }
+            }
+            catch
+            {
+                System.Windows.MessageBox.Show("Access to csv: "+ path + " forbiddon!\nPlease check your anti-virus settings", "Gees", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
             }
         }
 
