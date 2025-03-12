@@ -184,13 +184,18 @@ namespace GeesWPF
                         //ignore when noone is flying
                         if (r.ForwardSpeed < 4) //if less then 4kt, it's not a landing or out to menu
                         {
+                            Landingdata.Clear();
                             SafeToRead = true;
                             return;
                         }
                         lock (lockResource)
                         {
                             Landingdata.Add(r);
-                            if (Landingdata.Count > BUFFER_SIZE && !Landingdata.ElementAt(1).OnGround || Landingdata.ElementAt(0).OnGround)
+                            if (Landingdata.ElementAt(0).OnGround)
+                            {
+                                Landingdata.Clear();
+                            }
+                            else if (Landingdata.Count > BUFFER_SIZE && !Landingdata.ElementAt(1).OnGround)
                             {
                                 Landingdata.RemoveAt(0);
                             }
