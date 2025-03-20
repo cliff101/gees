@@ -1,0 +1,2 @@
+pitch: https://thenounproject.com/icon/pitch-342995/
+bankangle: https://thenounproject.com/icon/roll-342998/

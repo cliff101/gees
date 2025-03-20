@@ -35,6 +35,10 @@ namespace GeesWPF
             public double CrossV { get; set; }
             [Name("Sideslip (deg)")]
             public double Sideslip { get; set; }
+            [Name("Bankangle (deg)")]
+            public double Bankangle { get; set; }
+            [Name("Pitch (deg)")]
+            public double Pitch { get; set; }
             [Name("Bounces")]
             public double Bounces { get; set; }
         }

@@ -146,8 +146,10 @@ namespace GeesWPF
             public double Airspeed { get; set; }
             public double Groundspeed { get; set; }
             public double Headwind { get; set; }
-            public double Slip { get; set; }
             public double Crosswind { get; set; }
+            public double Slip { get; set; }
+            public double Bank { get; set; }
+            public double Pitch { get; set; }
             public int Bounces { get; set; }
         }
 
@@ -162,6 +164,8 @@ namespace GeesWPF
             Headwind = -7,
             Crosswind = 3,
             Slip = 1.53,
+            Bank = -1.7,
+            Pitch = -4.2,
             Bounces = 0
         };
         public void SetParams (Parameters value)
@@ -189,6 +193,8 @@ namespace GeesWPF
                 HeadV = _lastLandingParams.Headwind,
                 CrossV = _lastLandingParams.Crosswind,
                 Sideslip = _lastLandingParams.Slip,
+                Bankangle = _lastLandingParams.Bank,
+                Pitch = _lastLandingParams.Pitch,
                 Bounces = _lastLandingParams.Bounces
             });
             UpdateTable();
@@ -236,8 +242,21 @@ namespace GeesWPF
                 double Crosswind = _lastLandingParams.Crosswind;
                 double Headwind = _lastLandingParams.Headwind;
                 double windamp = Math.Sqrt(Crosswind * Crosswind + Headwind * Headwind);
-                return Convert.ToInt32(windamp) + " kt";
+                double windangle = Math.Atan2(Crosswind, Headwind) * 180 / Math.PI;
+                if (windangle < 0)
+                {
+                    windangle += 360;
+                }
+                return Convert.ToInt32(windangle) + "º At " + Convert.ToInt32(windamp) + " kt";
             }
+        }
+        public string HeadWindSpeedText
+        {
+            get { return _lastLandingParams.Headwind.ToString("0 kt Tail; 0 kt Head;"); }
+        }
+        public string CrossWindSpeedText
+        {
+            get { return _lastLandingParams.Crosswind.ToString("0 kt Right; 0 kt Left;"); }
         }
         public int WindDirection
         {
@@ -249,9 +268,40 @@ namespace GeesWPF
                 return Convert.ToInt32(windangle);
             }
         }
+
+        public int HeadWindDirection
+        {
+            get
+            {
+                double Headwind = _lastLandingParams.Headwind;
+                double windangle = Math.Atan2(0, Headwind) * 180 / Math.PI;
+                return Convert.ToInt32(windangle);
+            }
+        }
+
+        public int CrossWindDirection
+        {
+            get
+            {
+                double Crosswind = _lastLandingParams.Crosswind;
+                double windangle = Math.Atan2(Crosswind, 0) * 180 / Math.PI;
+                return Convert.ToInt32(windangle);
+            }
+        }
+
         public string AlphaText
         {
             get { return _lastLandingParams.Slip.ToString("0.##º Left Sideslip; 0.##º Right Sideslip;"); }
+        }
+
+        public string BankAngleText
+        {
+            get { return _lastLandingParams.Bank.ToString("0.##º Left Bank; 0.##º Right Bank;"); }
+        }
+
+        public string PitchText
+        {
+            get { return _lastLandingParams.Pitch.ToString("0.##º Down Pitch; 0.##º Up Pitch;"); }
         }
 
         public string BouncesText

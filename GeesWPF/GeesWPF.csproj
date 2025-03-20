@@ -246,6 +246,12 @@
   <ItemGroup>
     <Resource Include="Images\bounce.png" />
   </ItemGroup>
+  <ItemGroup>
+    <Resource Include="Images\pitch.png" />
+  </ItemGroup>
+  <ItemGroup>
+    <Resource Include="Images\bankangle.png" />
+  </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <Target Name="AfterBuild">
     <ItemGroup>

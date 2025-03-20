@@ -38,17 +38,98 @@ namespace GeesWPF
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi, Pack = 1)]
     public struct PlaneInfoResponse
     {
+        // Title
         [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
         public string Type;
+
+        // SimOnGround
         public bool OnGround;
-        public double WindLat;
-        public double WindHead;
+
+        // RelativeWindVelocityBodyX (AirSpeed)
+        public double RelativeWindX;
+
+        // RelativeWindVelocityBodyZ (Airspeed)
+        public double RelativeWindZ;
+
+        // AirspeedIndicated
         public double AirspeedInd;
+
+        // GroundVelocity
         public double GroundSpeed;
+
+        // VelocityBodyX
         public double LateralSpeed;
-        public double ForwardSpeed;
+
+        // VelocityBodyZ
+        public double SpeedAlongHeading;
+
+        // Gforce
         public double Gforce;
+
+        // PlaneTouchdownNormalVelocity
         public double LandingRate;
+
+        // PlaneAltitudeAboveGround
+        public double AltitudeAboveGround;
+
+        // PlaneLatitude
+        public double Latitude;
+
+        // PlaneLongitude
+        public double Longitude;
+
+        // PlaneBankDegrees
+        public double PlaneBankDegrees;
+
+        // PlanePitchDegrees
+        public double PlanePitchDegrees;
+
+        // OnAnyRunway
+        public bool OnAnyRunway;
+
+        // AtcRunwayAirportName
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
+        public string AtcRunwayAirportName;
+
+        // AtcRunwaySelected
+        public bool AtcRunwaySelected;
+
+        // AtcRunwayTdpointRelativePositionX Ft
+        // Right (+) or left (-) of the runway centerline
+        public double AtcRunwayTdpointRelativePositionX;
+
+        // AtcRunwayTdpointRelativePositionZ Ft
+        // Forward (+) or backward (-) of the runway aimingpoint (2 wide markers, beyond threshold)
+        public double AtcRunwayTdpointRelativePositionZ;
+
+        // The current indicated vertical speed for the aircraft.
+        public double VerticalSpeed;
+
+        public int GearPosition;
+        public bool LightLandingOn;
+
+        // Current true heading
+        public double GpsGroundTrueHeading;
+
+        // This float represents the true heading of the runway selected by the ATC.
+        public double AtcRunwayHeadingDegreesTrue;
+
+        // -Headwind (Windspeed)
+        public double AircraftWindZ;
+
+        // Crosswind (windspeed)
+        public double AircraftWindX;
+
+        // z position on runway Ft
+        public double AtcRunwayRelativePositionZ;
+
+        // incrementing Id, always place as last field.
+        public long Id;
+
+        public override string ToString()
+        {
+            return $"response Id:{this.Id}, OnGround:{this.OnGround}, AltitudeAboveGround:{this.AltitudeAboveGround}, AirspeedInd: {this.AirspeedInd} LandingRate: {this.LandingRate}";
+        }
     }
 
     /// <summary>
@@ -61,6 +142,7 @@ namespace GeesWPF
         static bool ShowLanding = false;
         static bool LandingComplete = false;
         static bool SafeToRead = true;
+        static bool SimPaused = true;
         static List<PlaneInfoResponse> Landingdata = new List<PlaneInfoResponse>();
         static FsConnect fsConnect = new FsConnect();
         static List<SimVar> definition = new List<SimVar>();
@@ -71,7 +153,7 @@ namespace GeesWPF
         int bounces = 0;
         int myDefineId;
 
-        const int SAMPLE_RATE = 1000/60; //ms
+        const int SAMPLE_RATE = 1000 / 60; //ms
         static int BUFFER_SIZE = 200;
         static int BUFFER_SIZE_SHOW = 10;
 
@@ -121,16 +203,46 @@ namespace GeesWPF
             timerRead.Tick += timerRead_Tick;
             timerBounce.Tick += timerBounce_Tick;
             fsConnect.FsDataReceived += HandleReceivedFsData;
-            definition.Add(new SimVar("TITLE", null, SIMCONNECT_DATATYPE.STRING256));
-            definition.Add(new SimVar("SIM ON GROUND", "Bool", SIMCONNECT_DATATYPE.INT32));
-            definition.Add(new SimVar("AIRCRAFT WIND X", "Knots", SIMCONNECT_DATATYPE.FLOAT64));
-            definition.Add(new SimVar("AIRCRAFT WIND Z", "Knots", SIMCONNECT_DATATYPE.FLOAT64));
-            definition.Add(new SimVar("AIRSPEED INDICATED", "Knots", SIMCONNECT_DATATYPE.FLOAT64));
-            definition.Add(new SimVar("GROUND VELOCITY", "Knots", SIMCONNECT_DATATYPE.FLOAT64));
-            definition.Add(new SimVar("VELOCITY BODY X", "Feet per second", SIMCONNECT_DATATYPE.FLOAT64));
-            definition.Add(new SimVar("VELOCITY BODY Z", "Feet per second", SIMCONNECT_DATATYPE.FLOAT64));
-            definition.Add(new SimVar("G FORCE", "GForce", SIMCONNECT_DATATYPE.FLOAT64));
-            definition.Add(new SimVar("PLANE TOUCHDOWN NORMAL VELOCITY", "Feet per second", SIMCONNECT_DATATYPE.FLOAT64));
+            fsConnect.PauseStateChanged += FsConnect_PauseStateChanged;
+
+            // properties to be read from SimConnect
+            // list additions need to track 1:1 with PlaneInfoResponse structure
+            definition.Add(new SimVar(FsSimVar.Title, null, SIMCONNECT_DATATYPE.STRING256));
+            definition.Add(new SimVar(FsSimVar.SimOnGround, FsUnit.Bool, SIMCONNECT_DATATYPE.INT32));
+            // Relative Wind component in aircraft lateral (X) axis.
+            definition.Add(new SimVar(FsSimVar.RelativeWindVelocityBodyX, FsUnit.Knots, SIMCONNECT_DATATYPE.FLOAT64));
+            // Relative Wind component in aircraft longitudinal(Z) axis.
+            definition.Add(new SimVar(FsSimVar.RelativeWindVelocityBodyZ, FsUnit.Knots, SIMCONNECT_DATATYPE.FLOAT64));
+            definition.Add(new SimVar(FsSimVar.AirspeedIndicated, FsUnit.Knots, SIMCONNECT_DATATYPE.FLOAT64));
+            // Speed relative to the earths surface.
+            definition.Add(new SimVar(FsSimVar.GroundVelocity, FsUnit.Knots, SIMCONNECT_DATATYPE.FLOAT64));
+            // lateral speed + to the right
+            definition.Add(new SimVar(FsSimVar.VelocityBodyX, FsUnit.Knots, SIMCONNECT_DATATYPE.FLOAT64));
+            // speed along airplane axis
+            definition.Add(new SimVar(FsSimVar.VelocityBodyZ, FsUnit.Knots, SIMCONNECT_DATATYPE.FLOAT64));
+            definition.Add(new SimVar(FsSimVar.GForce, FsUnit.GForce, SIMCONNECT_DATATYPE.FLOAT64));
+            definition.Add(new SimVar(FsSimVar.PlaneTouchdownNormalVelocity, FsUnit.FeetPerSecond, SIMCONNECT_DATATYPE.FLOAT64));
+            definition.Add(new SimVar(FsSimVar.PlaneAltitudeAboveGround, FsUnit.Feet, SIMCONNECT_DATATYPE.FLOAT64));
+            definition.Add(new SimVar(FsSimVar.PlaneLatitude, FsUnit.Degree, SIMCONNECT_DATATYPE.FLOAT64));
+            definition.Add(new SimVar(FsSimVar.PlaneLongitude, FsUnit.Degree, SIMCONNECT_DATATYPE.FLOAT64));
+            definition.Add(new SimVar(FsSimVar.PlaneBankDegrees, FsUnit.Degree, SIMCONNECT_DATATYPE.FLOAT64));
+            definition.Add(new SimVar(FsSimVar.PlanePitchDegrees, FsUnit.Degree, SIMCONNECT_DATATYPE.FLOAT64));
+            definition.Add(new SimVar(FsSimVar.OnAnyRunway, FsUnit.Bool, SIMCONNECT_DATATYPE.INT32));
+            definition.Add(new SimVar(FsSimVar.AtcRunwayAirportName, null, SIMCONNECT_DATATYPE.STRING256));
+            definition.Add(new SimVar(FsSimVar.AtcRunwaySelected, FsUnit.Bool, SIMCONNECT_DATATYPE.INT32));
+            definition.Add(new SimVar(FsSimVar.AtcRunwayTdpointRelativePositionX, FsUnit.Feet, SIMCONNECT_DATATYPE.FLOAT64));
+            definition.Add(new SimVar(FsSimVar.AtcRunwayTdpointRelativePositionZ, FsUnit.Feet, SIMCONNECT_DATATYPE.FLOAT64));
+            definition.Add(new SimVar(FsSimVar.VerticalSpeed, FsUnit.FeetPerMinute, SIMCONNECT_DATATYPE.FLOAT64));
+
+            definition.Add(new SimVar(FsSimVar.GearPosition, FsUnit.Enum, SIMCONNECT_DATATYPE.INT32));
+            definition.Add(new SimVar(FsSimVar.LightLandingOn, FsUnit.Bool, SIMCONNECT_DATATYPE.INT32));
+
+            definition.Add(new SimVar(FsSimVar.GpsGroundTrueHeading, FsUnit.Degree, SIMCONNECT_DATATYPE.FLOAT64));
+            definition.Add(new SimVar(FsSimVar.AtcRunwayHeadingDegreesTrue, FsUnit.Degree, SIMCONNECT_DATATYPE.FLOAT64));
+            definition.Add(new SimVar(FsSimVar.AircraftWindZ, FsUnit.Knots, SIMCONNECT_DATATYPE.FLOAT64));
+            definition.Add(new SimVar(FsSimVar.AircraftWindX, FsUnit.Knots, SIMCONNECT_DATATYPE.FLOAT64));
+            definition.Add(new SimVar(FsSimVar.AtcRunwayRelativePositionZ, FsUnit.Feet, SIMCONNECT_DATATYPE.FLOAT64));
+
             //SHOW LRM
             winLRM = new LRMDisplay(viewModel);
             winLRM.Show();
@@ -162,6 +274,11 @@ namespace GeesWPF
             }
         }
 
+        private static void FsConnect_PauseStateChanged(object sender, PauseStateChangedEventArgs e)
+        {
+            SimPaused = e.Paused;
+        }
+
         private static void HandleReceivedFsData(object sender, FsDataReceivedEventArgs e)
         {
             if (!SafeToRead)
@@ -181,15 +298,19 @@ namespace GeesWPF
                     if (!ShowLanding || !LandingComplete)
                     {
                         PlaneInfoResponse r = (PlaneInfoResponse)e.Data.FirstOrDefault();
-                        //ignore when noone is flying
-                        if (r.ForwardSpeed < 4) //if less then 4kt, it's not a landing or out to menu
-                        {
-                            Landingdata.Clear();
-                            SafeToRead = true;
-                            return;
-                        }
                         lock (lockResource)
                         {
+                            if (SimPaused)
+                            {
+                                SafeToRead = true;
+                                return;
+                            }
+                            if (((int)(r.Latitude * 100) == 0.0 || (int)(r.Longitude * 100) == 0.0) && r.OnGround) //lat&lon is 0 and on ground, it's out to menu
+                            {
+                                Landingdata.Clear();
+                                SafeToRead = true;
+                                return;
+                            }
                             Landingdata.Add(r);
                             if (Landingdata.ElementAt(0).OnGround)
                             {
@@ -227,8 +348,8 @@ namespace GeesWPF
             try
             {
                 int landingindex = 0;
-                for (; landingindex < Landingdata.Count && !Landingdata.ElementAt(landingindex).OnGround; landingindex++);
-                   double fpm = 60 * Landingdata.ElementAt(landingindex).LandingRate;
+                for (; landingindex < Landingdata.Count && !Landingdata.ElementAt(landingindex).OnGround; landingindex++) ;
+                double fpm = 60 * Landingdata.ElementAt(landingindex).LandingRate;
                 Int32 FPM = Convert.ToInt32(-fpm);
 
                 double gees = 0;
@@ -242,11 +363,11 @@ namespace GeesWPF
                     /*gees += Onground.ElementAt(i).Gforce;
                     Console.WriteLine(Onground.ElementAt(i).Gforce);*/
                 }
-               // gees /= BUFFER_SIZE;*/
-              //  gees += Onground.ElementAt(0).Gforce;
+                // gees /= BUFFER_SIZE;*/
+                //  gees += Onground.ElementAt(0).Gforce;
 
 
-                double incAngle = Math.Atan(Landingdata.ElementAt(landingindex - 1).LateralSpeed / Landingdata.ElementAt(landingindex - 1).ForwardSpeed) * 180 / Math.PI;
+                double incAngle = Math.Atan(Landingdata.ElementAt(landingindex - 1).LateralSpeed / Landingdata.ElementAt(landingindex - 1).SpeedAlongHeading) * 180 / Math.PI;
 
                 bounces = 0;
                 bool currentonground = false;
@@ -268,11 +389,13 @@ namespace GeesWPF
                     Name = Landingdata.ElementAt(landingindex - 1).Type,
                     FPM = FPM,
                     Gees = Math.Round(gees, 2),
-                    Airspeed = Math.Round(Landingdata.ElementAt(landingindex-1).AirspeedInd, 2),
+                    Airspeed = Math.Round(Landingdata.ElementAt(landingindex - 1).AirspeedInd, 2),
                     Groundspeed = Math.Round(Landingdata.ElementAt(landingindex - 1).GroundSpeed, 2),
-                    Crosswind = Math.Round(Landingdata.ElementAt(landingindex - 1).WindLat, 2),
-                    Headwind = Math.Round(Landingdata.ElementAt(landingindex - 1).WindHead, 2),
+                    Crosswind = Math.Round(Landingdata.ElementAt(landingindex - 1).AircraftWindX, 2),
+                    Headwind = Math.Round(Landingdata.ElementAt(landingindex - 1).AircraftWindZ, 2),
                     Slip = Math.Round(incAngle, 2),
+                    Bank = Math.Round(Landingdata.ElementAt(landingindex - 1).PlaneBankDegrees, 2),
+                    Pitch = Math.Round(Landingdata.ElementAt(landingindex - 1).PlanePitchDegrees, 2),
                     Bounces = bounces
                 });
                 winLRM.SlideLeft();
@@ -337,7 +460,7 @@ namespace GeesWPF
         #region Handlers for UI
         private void button_Click(object sender, RoutedEventArgs e)
         {
-           // notifyIcon.Visible = false;
+            // notifyIcon.Visible = false;
             Properties.Settings.Default.Save();
             notifyIcon.Visible = false;
             Environment.Exit(1);
@@ -401,41 +524,41 @@ namespace GeesWPF
         #endregion
 
         #region Logging and data handling
-    /*    void MakeLogIfEmpty()
-        {
-            string ls = System.Globalization.CultureInfo.CurrentCulture.TextInfo.ListSeparator;
-            const string header = "Time,Plane,FPM,Impact (G),Air Speed (kt),Ground Speed (kt),Headwind (kt),Crosswind (kt),Sideslip (deg)";
-            string myDocs = System.Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-            Directory.CreateDirectory(myDocs + @"\MyMSFS2020Landings-Gees"); //create if doesn't exist
-            string path = myDocs + @"\MyMSFS2020Landings-Gees\Landings.v1.csv";
-            if (!File.Exists(path))
+        /*    void MakeLogIfEmpty()
             {
-                using (StreamWriter w = File.CreateText(path))
+                string ls = System.Globalization.CultureInfo.CurrentCulture.TextInfo.ListSeparator;
+                const string header = "Time,Plane,FPM,Impact (G),Air Speed (kt),Ground Speed (kt),Headwind (kt),Crosswind (kt),Sideslip (deg)";
+                string myDocs = System.Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+                Directory.CreateDirectory(myDocs + @"\MyMSFS2020Landings-Gees"); //create if doesn't exist
+                string path = myDocs + @"\MyMSFS2020Landings-Gees\Landings.v1.csv";
+                if (!File.Exists(path))
                 {
-                    w.WriteLine(header);
+                    using (StreamWriter w = File.CreateText(path))
+                    {
+                        w.WriteLine(header);
+                    }
                 }
             }
-        }
-        void EnterLog(string Plane, int FPM, double G, double airV, double groundV, double headW, double crossW, double sideslip)
-        {
-
-            MakeLogIfEmpty();
-            string myDocs = System.Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-            string path = myDocs + @"\MyMSFS2020Landings-Gees\Landings.v1.csv";
-            using (StreamWriter w = File.AppendText(path))
+            void EnterLog(string Plane, int FPM, double G, double airV, double groundV, double headW, double crossW, double sideslip)
             {
-                string logLine = DateTime.Now.ToString("G") + ",";
-                logLine += Plane + ",";
-                logLine += FPM + ",";
-                logLine += G.ToString("0.##") + ",";
-                logLine += airV.ToString("0.##") + ",";
-                logLine += groundV.ToString("0.##") + ",";
-                logLine += headW.ToString("0.##") + ",";
-                logLine += crossW.ToString("0.##") + ",";
-                logLine += sideslip.ToString("0.##");
-                w.WriteLine(logLine);
-            }
-        }*/
+
+                MakeLogIfEmpty();
+                string myDocs = System.Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+                string path = myDocs + @"\MyMSFS2020Landings-Gees\Landings.v1.csv";
+                using (StreamWriter w = File.AppendText(path))
+                {
+                    string logLine = DateTime.Now.ToString("G") + ",";
+                    logLine += Plane + ",";
+                    logLine += FPM + ",";
+                    logLine += G.ToString("0.##") + ",";
+                    logLine += airV.ToString("0.##") + ",";
+                    logLine += groundV.ToString("0.##") + ",";
+                    logLine += headW.ToString("0.##") + ",";
+                    logLine += crossW.ToString("0.##") + ",";
+                    logLine += sideslip.ToString("0.##");
+                    w.WriteLine(logLine);
+                }
+            }*/
         #endregion
 
         #region System Tray handling
